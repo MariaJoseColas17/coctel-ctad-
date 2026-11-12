@@ -284,41 +284,40 @@
   </section>
 
   <section class="rsvp" id="rsvp" aria-labelledby="rsvp-title">
-    <!-- FORMSPREE ENDPOINT: the form ID (xdeejloj) lives only in this action attribute. -->
-    <form id="rsvp-form" action="https://formspree.io/f/xdeejloj" method="POST" novalidate>
-      <input type="hidden" name="_subject" value="New RSVP: The Alzheimer Project Reception, CTAD 2026">
+    <!-- RSVP ENDPOINT: the form posts to this site's own function (api/rsvp.js), which emails the organiser. -->
+    <form id="rsvp-form" action="/api/rsvp" method="POST" novalidate>
       <h2 id="rsvp-title">RSVP</h2>
       <p class="hint">Space is limited. Let us know you’re coming and we’ll save you a place at the reception.</p>
 
       <div class="row">
         <div class="field">
           <label for="first">First name</label>
-          <input id="first" name="First name" autocomplete="given-name" required>
+          <input id="first" name="First name" autocomplete="given-name" maxlength="100" required>
           <div class="err" id="first-err">Enter your first name.</div>
         </div>
         <div class="field">
           <label for="last">Last name</label>
-          <input id="last" name="Last name" autocomplete="family-name" required>
+          <input id="last" name="Last name" autocomplete="family-name" maxlength="100" required>
           <div class="err" id="last-err">Enter your last name.</div>
         </div>
       </div>
       <div class="field">
         <label for="email">Email</label>
-        <input id="email" name="email" type="email" autocomplete="email" required>
+        <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required>
         <div class="err" id="email-err">Enter a valid email, like name@institution.org.</div>
       </div>
       <div class="field">
         <label for="org">Institution or company</label>
-        <input id="org" name="Institution or company" autocomplete="organization" required>
+        <input id="org" name="Institution or company" autocomplete="organization" maxlength="200" required>
         <div class="err" id="org-err">Enter your institution or company.</div>
       </div>
       <div class="field">
         <label for="role">Role <span class="opt">(optional)</span></label>
-        <input id="role" name="Role" autocomplete="organization-title">
+        <input id="role" name="Role" autocomplete="organization-title" maxlength="200">
       </div>
       <div class="field">
         <label for="note">Anything we should know? <span class="opt">(optional)</span></label>
-        <textarea id="note" name="Note"></textarea>
+        <textarea id="note" name="Note" maxlength="2000"></textarea>
       </div>
       <input class="hp" type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true">
 
@@ -358,10 +357,10 @@
 </footer>
 
 <script>
-  // ---------------- RSVP via Formspree ----------------
+  // ---------------- RSVP via this site's own endpoint (api/rsvp.js) ----------------
   // Settings you may change:
   const CONTACT_EMAIL = "maria.colas@alzheimerproject.com";  // shown to visitors if something fails
-  const AUTORESPONSE_ENABLED = false;  // set to true only after enabling Auto Response in Formspree (paid plans)
+  const AUTORESPONSE_ENABLED = false;  // set to true only if api/rsvp.js also sends the guest a confirmation email
   const REQUEST_TIMEOUT_MS = 20000;
 
   const form = document.getElementById("rsvp-form");
@@ -433,7 +432,7 @@
     done.focus();
   }
 
-  // Map Formspree's error codes and field names to clear messages
+  // Map the RSVP endpoint's error codes and field names to clear messages
   const FIELD_IDS = { "First name": "first", "Last name": "last", "email": "email", "Institution or company": "org" };
   function explainErrors(data) {
     const errors = (data && Array.isArray(data.errors)) ? data.errors : [];
@@ -441,8 +440,8 @@
     for (const e of errors) {
       const id = e.field && FIELD_IDS[e.field];
       if (id) { setFieldError(id, e.message ? e.message.charAt(0).toUpperCase() + e.message.slice(1) + "." : defaultErr[id]); fieldShown = true; }
-      else if (e.code === "FORM_NOT_FOUND" || e.code === "INACTIVE") general.push("The RSVP form isn’t set up correctly yet.");
-      else if (/captcha/i.test((e.code || "") + " " + (e.message || ""))) general.push("The RSVP form needs a configuration change (spam check).");
+      else if (e.code === "NOT_CONFIGURED") general.push("The RSVP form isn’t set up correctly yet.");
+      else if (e.code === "SEND_FAILED") general.push("Your RSVP wasn’t received.");
       else if (e.message) general.push(e.message);
     }
     if (fieldShown && !general.length) return "Check the highlighted fields and try again.";
@@ -456,12 +455,6 @@
     showMessage("");
     if (!validate()) return;
 
-    if (!ENDPOINT || ENDPOINT.includes("YOUR_FORM_ID")) {
-      showMessage("RSVPs aren’t open yet. Please write to " + CONTACT_EMAIL + " to reserve your spot.");
-      console.error("Formspree endpoint missing: replace YOUR_FORM_ID in the form's action attribute.");
-      return;
-    }
-
     const email = document.getElementById("email").value.trim();
     const firstName = document.getElementById("first").value.trim();
     if (alreadySent(email)) {
@@ -469,8 +462,8 @@
       return;
     }
 
-    const data = new FormData(form);
-    data.set("email", email);
+    const data = Object.fromEntries(new FormData(form));
+    data.email = email;
 
     setSending(true);
     const controller = new AbortController();
@@ -478,8 +471,8 @@
     try {
       const res = await fetch(ENDPOINT, {
         method: "POST",
-        body: data,
-        headers: { "Accept": "application/json" },
+        body: JSON.stringify(data),
+        headers: { "Accept": "application/json", "Content-Type": "application/json" },
         signal: controller.signal,
       });
       let body = null;
